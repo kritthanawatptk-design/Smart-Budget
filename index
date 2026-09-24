@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบจองและเบิกจ่ายงบประมาณ (Smart Budget System - ศวก.4)</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * { font-family: 'Prompt', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    
+    @media print {
+      body * { visibility: hidden; }
+      #printable-memo, #printable-memo * { visibility: visible; }
+      #printable-memo { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 20px; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex custom-scrollbar">
+
+  <!-- 🔐 LOGIN OVERLAY -->
+  <div id="login-overlay" class="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="w-16 h-16 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-2xl flex items-center justify-center mx-auto text-3xl text-white shadow-lg shadow-emerald-500/30">🏛️</div>
+        <h2 class="text-2xl font-bold text-slate-800">เข้าสู่ระบบ Smart Budget</h2>
+        <p class="text-xs text-slate-500">ศูนย์วิทยาศาสตร์การแพทย์ที่ 4 สระบุรี (ศวก.4)</p>
+      </div>
+
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">User ID / รหัสผู้ใช้งาน</label>
+          <input type="text" id="login-username" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="admin / user1 / head1">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Password / รหัสผ่าน</label>
+          <input type="password" id="login-password" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="••••••••">
+        </div>
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all">เข้าสู่ระบบ (Login)</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 📌 SIDEBAR NAVIGATION -->
+  <aside class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 hidden md:flex sticky top-0 h-screen z-20">
+    <div>
+      <div class="p-6 border-b border-slate-100 flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white text-xl shadow-md">🏛️</div>
+        <div>
+          <h1 class="font-bold text-slate-800 text-base leading-tight">Smart Budget</h1>
+          <span class="text-[11px] text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">ศวก.4 Supabase Live</span>
+        </div>
+      </div>
+
+      <nav class="p-4 space-y-1">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-emerald-600 bg-emerald-50 transition-all">📊 แดชบอร์ด & Analytics</button>
+        <button onclick="switchTab('request')" id="nav-request" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">📝 ยื่นคำขอจองงบ</button>
+        <button onclick="switchTab('history')" id="nav-history" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">📋 ติดตามคำขอ & อนุมัติ</button>
+        <button onclick="switchTab('audit')" id="nav-audit" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">📜 Audit Trail (ประวัติ)</button>
+        <!-- ซ่อน/แสดง เมนู Admin ตามสิทธิ์ -->
+        <button onclick="switchTab('admin')" id="nav-admin" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all hidden">⚙️ จัดการ Master Data & สิทธิ์</button>
+      </nav>
+    </div>
+
+    <div class="p-4 border-t border-slate-100 bg-slate-50/50">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div id="user-avatar" class="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shrink-0">U</div>
+          <div class="truncate">
+            <p id="user-display-name" class="text-xs font-bold text-slate-800 truncate">-- ไม่ได้เข้าสู่ระบบ --</p>
+            <p id="user-display-role" class="text-[10px] text-slate-500 font-mono truncate">-- ไม่ระบุสิทธิ์ --</p>
+          </div>
+        </div>
+        <button onclick="handleLogout()" title="ออกจากระบบ" class="p-2 text-slate-400 hover:text-rose-600 rounded-lg transition-all">🚪</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 🖥️ MAIN CONTENT -->
+  <main class="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto custom-scrollbar">
+    <div class="p-6 md:p-8 space-y-8 max-w-7xl w-full mx-auto">
+
+      <!-- TAB 1: DASHBOARD -->
+      <section id="tab-dashboard" class="tab-content space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">แดชบอร์ดภาพรวม & วิเคราะห์งบประมาณ</h2>
+          <p class="text-xs text-slate-500">จำแนกงบประมาณโครงการ และ งบเงินบำรุง ศวก.4 Real-time</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-1">
+            <span class="text-xs font-medium text-slate-400">งบประมาณจัดสรรรวม</span>
+            <div id="kpi-allocated" class="text-2xl font-bold text-slate-800">฿0</div>
+          </div>
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-1">
+            <span class="text-xs font-medium text-amber-600">ยอดจองผูกพัน (Encumbered)</span>
+            <div id="kpi-encumbered" class="text-2xl font-bold text-amber-600">฿0</div>
+          </div>
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-1">
+            <span class="text-xs font-medium text-rose-600">เบิกจ่ายจริง (Disbursed)</span>
+            <div id="kpi-disbursed" class="text-2xl font-bold text-rose-600">฿0</div>
+          </div>
+          <div class="bg-emerald-600 p-5 rounded-2xl text-white shadow-lg space-y-1">
+            <span class="text-xs font-medium text-emerald-100">คงเหลือสุทธิ (Available)</span>
+            <div id="kpi-available" class="text-2xl font-bold text-white">฿0</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 class="text-sm font-bold text-slate-700">สัดส่วนประเภทงบประมาณ (โครงการ vs เงินบำรุง)</h3>
+            <div class="h-64 relative"><canvas id="chart-budget-pie"></canvas></div>
+          </div>
+          <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 class="text-sm font-bold text-slate-700">เปรียบเทียบวงเงิน จัดสรร vs เบิกจ่าย</h3>
+            <div class="h-64 relative"><canvas id="chart-budget-bar"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div class="p-5 border-b border-slate-100">
+            <h3 class="text-sm font-bold text-slate-700">สรุปสถานะโครงการ / เงินบำรุง</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead class="bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase">
+                <tr>
+                  <th class="p-4">ประเภทงบ</th>
+                  <th class="p-4">รหัส / ชื่อโครงการ</th>
+                  <th class="p-4 text-right">จัดสรร</th>
+                  <th class="p-4 text-right">จองแล้ว</th>
+                  <th class="p-4 text-right">จ่ายแล้ว</th>
+                  <th class="p-4 text-right">คงเหลือ</th>
+                  <th class="p-4 text-center">สัดส่วนใช้ไป</th>
+                </tr>
+              </thead>
+              <tbody id="table-project-summary" class="divide-y divide-slate-100 text-xs"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: REQUEST FORM -->
+      <section id="tab-request" class="tab-content hidden space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">ยื่นคำขอจองงบประมาณ</h2>
+          <p class="text-xs text-slate-500">ระบุรายการและเลือกโครงการ/เงินบำรุงที่ต้องการตัดยอด</p>
+        </div>
+
+        <form onsubmit="submitBudgetRequest(event)" class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-2">เลือกโครงการ / เงินบำรุง *</label>
+              <select id="form-project-id" required onchange="calculateFormBalance()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-2">วงเงินคงเหลือปัจจุบัน</label>
+              <input type="text" id="form-balance-display" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-3 text-xs font-bold text-emerald-600 outline-none" value="฿0.00">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-2">ชื่อผู้ขอเบิก / เจ้าของโครงการ *</label>
+              <input type="text" id="form-requester" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-2">กลุ่มงาน / สังกัด *</label>
+              <input type="text" id="form-dept" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 outline-none">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-2">วัตถุประสงค์ / รายละเอียด *</label>
+            <textarea id="form-title" required rows="2" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 outline-none" placeholder="ระบุวัตถุประสงค์..."></textarea>
+          </div>
+
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <label class="text-xs font-semibold text-slate-600">รายการค่าใช้จ่ายย่อย</label>
+              <button type="button" onclick="addRequestItemRow()" class="text-xs text-emerald-600 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100">+ เพิ่มรายการ</button>
+            </div>
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th class="p-3">รายการ</th>
+                    <th class="p-3 w-28 text-right">จำนวน</th>
+                    <th class="p-3 w-36 text-right">ราคาต่อหน่วย (฿)</th>
+                    <th class="p-3 w-36 text-right">ราคารวม (฿)</th>
+                    <th class="p-3 w-12 text-center">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="form-items-body" class="divide-y divide-slate-100"></tbody>
+                <tfoot class="bg-slate-50 font-bold border-t border-slate-200">
+                  <tr>
+                    <td colspan="3" class="p-3 text-right text-slate-600">ยอดขอจองรวมทั้งสิ้น:</td>
+                    <td id="form-total-amount" class="p-3 text-right text-emerald-600 font-extrabold text-sm">฿0.00</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md text-xs transition-all">ส่งคำขอจองงบเข้า Supabase Database</button>
+        </form>
+      </section>
+
+      <!-- TAB 3: HISTORY -->
+      <section id="tab-history" class="tab-content hidden space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">ติดตามคำขอ & อนุมัติงบประมาณ</h2>
+          <p class="text-xs text-slate-500">ระบบอนุมัติ 3 ขั้นตอน: หัวหน้า ➔ งานคลัง ➔ ผู้อำนวยการ</p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead class="bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase">
+                <tr>
+                  <th class="p-4">Ref ID / วันที่</th>
+                  <th class="p-4">ประเภท / โครงการ</th>
+                  <th class="p-4">ผู้ขอ / กลุ่มงาน</th>
+                  <th class="p-4 text-right">วงเงินขอจอง</th>
+                  <th class="p-4 text-center">สถานะ Workflow</th>
+                  <th class="p-4 text-center">การดำเนินการ</th>
+                </tr>
+              </thead>
+              <tbody id="table-history-body" class="divide-y divide-slate-100 text-xs"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: AUDIT TRAIL -->
+      <section id="tab-audit" class="tab-content hidden space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">Audit Trail (ประวัติการดำเนินงาน)</h2>
+          <p class="text-xs text-slate-500">บันทึกประวัติการยื่นคำขอและอนุมัติงบประมาณย้อนหลัง</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+          <div id="audit-log-container" class="space-y-4"></div>
+        </div>
+      </section>
+
+      <!-- TAB 5: ADMIN MASTER DATA & ROLE MANAGEMENT -->
+      <section id="tab-admin" class="tab-content hidden space-y-8">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">จัดการข้อมูล Master Data & กำหนดสิทธิ์ผู้ใช้</h2>
+          <p class="text-xs text-slate-500">เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่มีสิทธิ์เข้าถึงหน้านี้</p>
+        </div>
+
+        <!-- 1. USER ROLE MANAGEMENT SECTION -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
+          <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">👤 จัดการผู้ใช้งานและกำหนดสิทธิ์ (User Roles)</h3>
+          
+          <form onsubmit="handleAddUser(event)" class="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <input type="text" id="admin-user-id" placeholder="User ID" required class="bg-white border border-slate-200 rounded-lg p-2.5 text-xs outline-none">
+            <input type="text" id="admin-user-pass" placeholder="Password" required class="bg-white border border-slate-200 rounded-lg p-2.5 text-xs outline-none">
+            <input type="text" id="admin-user-name" placeholder="ชื่อ-นามสกุล" required class="bg-white border border-slate-200 rounded-lg p-2.5 text-xs outline-none">
+            <input type="text" id="admin-user-dept" placeholder="กลุ่มงาน/สังกัด" required class="bg-white border border-slate-200 rounded-lg p-2.5 text-xs outline-none">
+            <select id="admin-user-role" required class="bg-white border border-slate-200 rounded-lg p-2.5 text-xs outline-none">
+              <option value="user">Requester (ผู้ขอเบิก)</option>
+              <option value="approver">Approver (ผู้อนุมัติ)</option>
+              <option value="admin">Admin (ผู้ดูแลระบบ)</option>
+            </select>
+            <div class="md:col-span-5 flex justify-end">
+              <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all">+ เพิ่ม/อัปเดตผู้ใช้</button>
+            </div>
+          </form>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-slate-100 text-slate-600 uppercase font-semibold">
+                <tr>
+                  <th class="p-3">User ID</th>
+                  <th class="p-3">ชื่อ-นามสกุล</th>
+                  <th class="p-3">กลุ่มงาน/สังกัด</th>
+                  <th class="p-3 text-center">ระดับสิทธิ์ (Role)</th>
+                  <th class="p-3 text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="table-users-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. PROJECT MASTER DATA SECTION -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
+          <h3 class="text-sm font-bold text-slate-700">📊 จัดการโครงการและงบประมาณ Master Data</h3>
+          <form onsubmit="handleAddProject(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">ประเภทงบประมาณ *</label>
+              <select id="admin-proj-type" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+                <option value="government">🏛️ งบประมาณโครงการ (งบแผ่นดิน/ยุทธศาสตร์)</option>
+                <option value="revenue">💳 งบเงินบำรุง (เงินรายได้ศูนย์ฯ)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">รหัสรายการ/โครงการ *</label>
+              <input type="text" id="admin-proj-id" placeholder="เช่น PROJ-004" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อโครงการ / รายการงบ *</label>
+              <input type="text" id="admin-proj-name" placeholder="ระบุชื่อโครงการ" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">กลุ่มงานที่รับผิดชอบ *</label>
+              <input type="text" id="admin-proj-dept" placeholder="เช่น กลุ่มงานชันสูตร" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">รหัส GFMIS / FinAt *</label>
+              <input type="text" id="admin-proj-gfmis" placeholder="เช่น GF-690013" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">วงเงินจัดสรรเริ่มต้น (บาท) *</label>
+              <input type="number" id="admin-proj-allocated" placeholder="0.00" required step="0.01" min="0" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs outline-none">
+            </div>
+            <div class="md:col-span-3">
+              <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl p-3 text-xs transition-all shadow-md">
+                + บันทึกรายการงบประมาณลง Supabase
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- MODAL MEMORANDUM PRINT -->
+  <div id="modal-memo" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-3xl w-full rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+      <div class="p-4 bg-slate-100 border-b border-slate-200 flex justify-between items-center no-print">
+        <h3 class="font-bold text-xs text-slate-700">หนังสือบันทึกข้อความ (ตราครุฑ)</h3>
+        <div class="flex gap-2">
+          <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold">🖨️ พิมพ์เอกสาร</button>
+          <button onclick="closeMemoModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-1.5 rounded-lg font-bold">ปิด</button>
+        </div>
+      </div>
+
+      <div id="printable-memo" class="p-10 bg-white text-slate-900 leading-relaxed text-sm">
+        <div class="text-center space-y-1 mb-6">
+          <div class="text-4xl">🦅</div>
+          <h2 class="text-xl font-bold">บันทึกข้อความ</h2>
+        </div>
+        <div class="space-y-2 mb-6 text-xs">
+          <p><strong>ส่วนราชการ:</strong> <span id="memo-dept">--</span> ศูนย์วิทยาศาสตร์การแพทย์ที่ 4 สระบุรี</p>
+          <div class="flex justify-between">
+            <p><strong>ที่:</strong> <span id="memo-ref">--</span></p>
+            <p><strong>วันที่:</strong> <span id="memo-date">--</span></p>
+          </div>
+          <p><strong>เรื่อง:</strong> ขออนุมัติจองและเบิกจ่ายงบประมาณสำหรับ <span id="memo-title">--</span></p>
+        </div>
+        <hr class="border-slate-300 my-4">
+        <div class="space-y-4 text-xs">
+          <p><strong>เรียน</strong> ผู้อำนวยการศูนย์วิทยาศาสตร์การแพทย์ที่ 4 สระบุรี</p>
+          <p class="indent-8">ด้วย กลุ่มงาน <span id="memo-dept-body">--</span> มีความจำเป็นต้องขออนุมัติจองและเบิกจ่ายงบประมาณ (<span id="memo-bg-type-label" class="font-bold"></span>) <strong>โครงการ/หมวดเงิน: <span id="memo-project">--</span></strong> โดยมีรายการค่าใช้จ่ายย่อย ดังต่อไปนี้</p>
+          <table class="w-full border-collapse border border-slate-400 text-xs my-4">
+            <thead>
+              <tr class="bg-slate-100 border-b border-slate-400 text-center">
+                <th class="border border-slate-400 p-2">ลำดับ</th>
+                <th class="border border-slate-400 p-2 text-left">รายการค่าใช้จ่าย</th>
+                <th class="border border-slate-400 p-2 w-20">จำนวน</th>
+                <th class="border border-slate-400 p-2 text-right w-24">ราคา/หน่วย</th>
+                <th class="border border-slate-400 p-2 text-right w-28">จำนวนเงิน (บาท)</th>
+              </tr>
+            </thead>
+            <tbody id="memo-items-table"></tbody>
+            <tfoot>
+              <tr class="font-bold bg-slate-50">
+                <td colspan="4" class="border border-slate-400 p-2 text-right">รวมเงินทั้งสิ้น</td>
+                <td id="memo-total-amount" class="border border-slate-400 p-2 text-right font-extrabold">--</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p>จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ</p>
+          <div class="grid grid-cols-2 gap-8 pt-10 text-center text-xs">
+            <div>
+              <p>ลงชื่อ..........................................................</p>
+              <p>(<span id="memo-sign-req">--</span>)</p>
+              <p class="text-slate-500">ผู้ขออนุมัติ</p>
+            </div>
+            <div>
+              <p>ลงชื่อ..........................................................</p>
+              <p>(..........................................................)</p>
+              <p class="text-slate-500">ผู้อำนวยการศูนย์ฯ / ผู้มีอำนาจอนุมัติ</p>
+            </div>
+          </div>
+          <div class="pt-8 border-t border-slate-200 flex justify-between items-end text-[10px] text-slate-400">
+            <div>
+              <p>📍 ประทับตราตรวจสอบสิทธิ์ในระบบ Smart Budget Supabase Live (ศวก.4)</p>
+              <p>GFMIS / Ref Stamp: <span id="memo-stamp-id" class="font-mono font-bold">--</span></p>
+            </div>
+            <div id="memo-qrcode" class="shrink-0"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ------------------------------------------
+    // 1. SUPABASE CONFIGURATION
+    // ------------------------------------------
+    const SUPABASE_URL = "https://yewcijbmbtvwjcpfxims.supabase.co"; 
+    const SUPABASE_ANON_KEY = "sb_publishable_Bh27o2Wq--AsD7R-bWvUsw_nQN69...";
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let masterProjects = [];
+    let budgetRequests = [];
+    let usersList = [];
+    let currentUser = null;
+    let pieChartInstance = null;
+    let barChartInstance = null;
+
+    // ------------------------------------------
+    // 2. DATA FETCH & LISTENERS
+    // ------------------------------------------
+    async function loadProjectsFromSupabase() {
+      const { data, error } = await supabaseClient.from('projects').select('*');
+      if (error) { console.error("Error loading projects:", error); return; }
+      masterProjects = data || [];
+      if (masterProjects.length === 0) { seedInitialProjects(); } 
+      else { renderDashboard(); populateRequestForm(); renderCharts(); }
+    }
+
+    async function loadRequestsFromSupabase() {
+      const { data, error } = await supabaseClient.from('requests').select('*').order('createdAt', { ascending: false });
+      if (error) { console.error("Error loading requests:", error); return; }
+      budgetRequests = data || [];
+      renderHistoryTable();
+      renderAuditLogs();
+    }
+
+    async function loadUsersFromSupabase() {
+      const { data, error } = await supabaseClient.from('users').select('*');
+      if (error) { console.error("Error loading users:", error); return; }
+      usersList = data || [];
+      renderUsersTable();
+    }
+
+    function setupRealtimeListeners() {
+      supabaseClient.channel('schema-db-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => loadProjectsFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, () => loadRequestsFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => loadUsersFromSupabase())
+        .subscribe();
+    }
+
+    async function seedInitialProjects() {
+      const initData = [
+        { id: 'PROJ-001', name: 'โครงการตรวจวิเคราะห์ทางห้องปฏิบัติการ', dept: 'กลุ่มงานชันสูตร', gfmis: 'GF-690011', allocated: 500000, disbursed: 0, encumbered: 0, budget_type: 'government' },
+        { id: 'PROJ-002', name: 'เงินบำรุงพัฒนาคุณภาพ ISO 15189', dept: 'ฝ่ายบริหารทั่วไป', gfmis: 'GF-690012', allocated: 300000, disbursed: 0, encumbered: 0, budget_type: 'revenue' }
+      ];
+      await supabaseClient.from('projects').insert(initData);
+      loadProjectsFromSupabase();
+    }
+
+    // ------------------------------------------
+    // 3. AUTHENTICATION & ROLE-BASED ACCESS
+    // ------------------------------------------
+    async function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value.trim();
+
+      // ตรวจสอบข้อมูลสิทธิ์จาก Supabase Users Table
+      const { data, error } = await supabaseClient.from('users').select('*').eq('username', u).eq('password', p).single();
+
+      if (data) {
+        currentUser = data;
+        document.getElementById('login-overlay').classList.add('hidden');
+        document.getElementById('user-display-name').innerText = currentUser.name;
+        document.getElementById('user-display-role').innerText = `[${currentUser.role.toUpperCase()}] ${currentUser.dept}`;
+        document.getElementById('user-avatar').innerText = currentUser.name.charAt(0);
+        
+        document.getElementById('form-requester').value = currentUser.name;
+        document.getElementById('form-dept').value = currentUser.dept;
+        
+        // ควบคุมการแสดงผลตามสิทธิ์ Role
+        if (currentUser.role === 'admin') {
+          document.getElementById('nav-admin').classList.remove('hidden');
+        } else {
+          document.getElementById('nav-admin').classList.add('hidden');
+        }
+
+        loadProjectsFromSupabase();
+        loadRequestsFromSupabase();
+        loadUsersFromSupabase();
+        setupRealtimeListeners();
+      } else {
+        alert('User ID หรือ Password ไม่ถูกต้อง!');
+      }
+    }
+
+    function handleLogout() {
+      currentUser = null;
+      document.getElementById('login-overlay').classList.remove('hidden');
+    }
+
+    function switchTab(tabId) {
+      if (tabId === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
+        alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่มีสิทธิ์เข้าถึงหน้านี้!');
+        return;
+      }
+
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('bg-emerald-50', 'text-emerald-600'));
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+      const navBtn = document.getElementById(`nav-${tabId}`);
+      if(navBtn) navBtn.classList.add('bg-emerald-50', 'text-emerald-600');
+
+      if (tabId === 'dashboard') { loadProjectsFromSupabase(); }
+      if (tabId === 'request') { populateRequestForm(); }
+      if (tabId === 'history') { loadRequestsFromSupabase(); }
+      if (tabId === 'audit') { renderAuditLogs(); }
+      if (tabId === 'admin') { loadUsersFromSupabase(); }
+    }
+
+    // ------------------------------------------
+    // 4. USER ROLE MANAGEMENT (ADMIN ONLY)
+    // ------------------------------------------
+    function renderUsersTable() {
+      const tbody = document.getElementById('table-users-body');
+      if (!tbody) return;
+
+      tbody.innerHTML = usersList.map(u => {
+        let roleBadge = `<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold text-[10px]">Requester</span>`;
+        if (u.role === 'approver') roleBadge = `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold text-[10px]">Approver</span>`;
+        if (u.role === 'admin') roleBadge = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold text-[10px]">Admin</span>`;
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 font-mono font-bold text-slate-800">${u.username}</td>
+            <td class="p-3">${u.name}</td>
+            <td class="p-3 text-slate-500">${u.dept}</td>
+            <td class="p-3 text-center">${roleBadge}</td>
+            <td class="p-3 text-center space-x-1">
+              <button onclick="deleteUser('${u.username}')" class="text-rose-500 font-bold hover:underline">ลบ</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function handleAddUser(e) {
+      e.preventDefault();
+      const newUser = {
+        username: document.getElementById('admin-user-id').value.trim(),
+        password: document.getElementById('admin-user-pass').value.trim(),
+        name: document.getElementById('admin-user-name').value.trim(),
+        dept: document.getElementById('admin-user-dept').value.trim(),
+        role: document.getElementById('admin-user-role').value
+      };
+
+      const { error } = await supabaseClient.from('users').upsert([newUser]);
+      if (error) alert("เกิดข้อผิดพลาดในการบันทึกผู้ใช้: " + error.message);
+      else { alert(`เพิ่ม/อัปเดตสิทธิ์ผู้ใช้ ${newUser.username} สำเร็จ!`); loadUsersFromSupabase(); }
+    }
+
+    async function deleteUser(username) {
+      if (username === 'admin') { alert("ไม่สามารถลบ Master Admin ได้!"); return; }
+      if (confirm(`คุณต้องการลบผู้ใช้ ${username} หรือไม่?`)) {
+        await supabaseClient.from('users').delete().eq('username', username);
+        loadUsersFromSupabase();
+      }
+    }
+
+    // ------------------------------------------
+    // 5. DASHBOARD & CHARTS
+    // ------------------------------------------
+    function renderDashboard() {
+      let totalAllocated = 0, totalEncumbered = 0, totalDisbursed = 0;
+      masterProjects.forEach(p => {
+        totalAllocated += Number(p.allocated || 0);
+        totalEncumbered += Number(p.encumbered || 0);
+        totalDisbursed += Number(p.disbursed || 0);
+      });
+      const totalAvailable = totalAllocated - totalEncumbered - totalDisbursed;
+
+      document.getElementById('kpi-allocated').innerText = `฿${totalAllocated.toLocaleString()}`;
+      document.getElementById('kpi-encumbered').innerText = `฿${totalEncumbered.toLocaleString()}`;
+      document.getElementById('kpi-disbursed').innerText = `฿${totalDisbursed.toLocaleString()}`;
+      document.getElementById('kpi-available').innerText = `฿${totalAvailable.toLocaleString()}`;
+
+      const summaryBody = document.getElementById('table-project-summary');
+      if (summaryBody) {
+        summaryBody.innerHTML = masterProjects.map(p => {
+          const avail = p.allocated - p.encumbered - p.disbursed;
+          const usedPct = p.allocated > 0 ? Math.round(((p.disbursed + p.encumbered) / p.allocated) * 100) : 0;
+          const isGov = (p.budget_type || 'government') === 'government';
+          const typeBadge = isGov 
+            ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md font-bold text-[10px]">🏛️ งบโครงการ</span>`
+            : `<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md font-bold text-[10px]">💳 งบเงินบำรุง</span>`;
+
+          return `
+            <tr class="hover:bg-slate-50 transition-all">
+              <td class="p-4">${typeBadge}</td>
+              <td class="p-4 font-semibold text-slate-800">${p.name} <div class="text-[10px] text-slate-400 font-mono">${p.id} | GFMIS: ${p.gfmis}</div></td>
+              <td class="p-4 text-right">฿${Number(p.allocated||0).toLocaleString()}</td>
+              <td class="p-4 text-right text-amber-600 font-medium">฿${Number(p.encumbered||0).toLocaleString()}</td>
+              <td class="p-4 text-right text-rose-600 font-medium">฿${Number(p.disbursed||0).toLocaleString()}</td>
+              <td class="p-4 text-right font-bold text-emerald-600">฿${avail.toLocaleString()}</td>
+              <td class="p-4 text-center">
+                <span class="px-2 py-1 rounded-full text-[10px] font-bold ${usedPct > 80 ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}">${usedPct}%</span>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderCharts() {
+      let govAlloc = 0, revAlloc = 0;
+      masterProjects.forEach(p => {
+        if((p.budget_type || 'government') === 'government') govAlloc += Number(p.allocated);
+        else revAlloc += Number(p.allocated);
+      });
+
+      const ctxPie = document.getElementById('chart-budget-pie').getContext('2d');
+      if (pieChartInstance) pieChartInstance.destroy();
+      pieChartInstance = new Chart(ctxPie, {
+        type: 'doughnut',
+        data: {
+          labels: ['งบประมาณโครงการ (งบแผ่นดิน)', 'งบเงินบำรุง (เงินรายได้)'],
+          datasets: [{ data: [govAlloc, revAlloc], backgroundColor: ['#3b82f6', '#10b981'] }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+
+      const labels = masterProjects.map(p => p.id);
+      const allocatedData = masterProjects.map(p => p.allocated);
+      const disbursedData = masterProjects.map(p => p.disbursed);
+
+      const ctxBar = document.getElementById('chart-budget-bar').getContext('2d');
+      if (barChartInstance) barChartInstance.destroy();
+      barChartInstance = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'วงเงินจัดสรร', data: allocatedData, backgroundColor: '#3b82f6' },
+            { label: 'เบิกจ่ายแล้ว', data: disbursedData, backgroundColor: '#10b981' }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+    }
+
+    // ------------------------------------------
+    // 6. REQUEST FORM & APPROVAL WORKFLOW
+    // ------------------------------------------
+    function populateRequestForm() {
+      const select = document.getElementById('form-project-id');
+      if(select) {
+        select.innerHTML = masterProjects.map(p => {
+          const typeName = (p.budget_type || 'government') === 'government' ? '[งบโครงการ]' : '[งบเงินบำรุง]';
+          return `<option value="${p.id}">${typeName} ${p.name} (คงเหลือ: ฿${(p.allocated - p.disbursed - p.encumbered).toLocaleString()})</option>`;
+        }).join('');
+      }
+      const itemsBody = document.getElementById('form-items-body');
+      if(itemsBody && itemsBody.children.length === 0) { addRequestItemRow(); }
+      calculateFormBalance();
+    }
+
+    function addRequestItemRow() {
+      const tbody = document.getElementById('form-items-body');
+      const tr = document.createElement('tr');
+      tr.className = 'item-row';
+      tr.innerHTML = `
+        <td class="p-2"><input type="text" required class="item-title w-full bg-slate-50 border border-slate-200 rounded-lg p-2 outline-none" placeholder="เช่น ค่าวัสดุวิทยาศาสตร์"></td>
+        <td class="p-2"><input type="number" required min="1" value="1" oninput="calculateItemTotals()" class="item-qty w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-right outline-none"></td>
+        <td class="p-2"><input type="number" required min="0" step="0.01" value="0" oninput="calculateItemTotals()" class="item-price w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-right outline-none"></td>
+        <td class="p-2 text-right font-bold text-slate-700 item-total-display">฿0.00</td>
+        <td class="p-2 text-center"><button type="button" onclick="removeRequestItemRow(this)" class="text-rose-500 font-bold">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function removeRequestItemRow(btn) {
+      const rows = document.querySelectorAll('.item-row');
+      if (rows.length > 1) { btn.closest('tr').remove(); calculateItemTotals(); }
+    }
+
+    function calculateItemTotals() {
+      let grandTotal = 0;
+      document.querySelectorAll('.item-row').forEach(row => {
+        const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
+        const price = parseFloat(row.querySelector('.item-price').value) || 0;
+        const total = qty * price;
+        grandTotal += total;
+        row.querySelector('.item-total-display').innerText = `฿${total.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+      });
+      document.getElementById('form-total-amount').innerText = `฿${grandTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+      return grandTotal;
+    }
+
+    function calculateFormBalance() {
+      const projId = document.getElementById('form-project-id').value;
+      const proj = masterProjects.find(p => p.id === projId);
+      if (proj) {
+        const avail = proj.allocated - proj.disbursed - proj.encumbered;
+        document.getElementById('form-balance-display').value = `฿${avail.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+      }
+    }
+
+    async function submitBudgetRequest(e) {
+      e.preventDefault();
+      const projId = document.getElementById('form-project-id').value;
+      const proj = masterProjects.find(p => p.id === projId);
+      const totalAmount = calculateItemTotals();
+      const avail = proj.allocated - proj.disbursed - proj.encumbered;
+
+      if (totalAmount > avail) { alert('วงเงินคงเหลือไม่เพียงพอสำหรับคำขอนี้!'); return; }
+
+      const items = [];
+      document.querySelectorAll('.item-row').forEach(row => {
+        const title = row.querySelector('.item-title').value;
+        const qty = parseFloat(row.querySelector('.item-qty').value);
+        const unitPrice = parseFloat(row.querySelector('.item-price').value);
+        items.push({ title, qty, unitPrice, total: qty * unitPrice });
+      });
+
+      const newReq = {
+        id: `REQ-${new Date().getFullYear()}-${String(budgetRequests.length + 1).padStart(3, '0')}`,
+        projectId: projId,
+        title: document.getElementById('form-title').value,
+        requester: document.getElementById('form-requester').value,
+        dept: document.getElementById('form-dept').value,
+        amount: totalAmount,
+        status: 'pending_head',
+        createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        items: items
+      };
+
+      const { error } = await supabaseClient.from('requests').insert([newReq]);
+      if (error) alert("เกิดข้อผิดพลาด: " + error.message);
+      else { alert(`ยื่นคำขอเรียบร้อย! ID: ${newReq.id}`); switchTab('history'); }
+    }
+
+    function renderHistoryTable() {
+      const body = document.getElementById('table-history-body');
+      if (!body) return;
+
+      body.innerHTML = budgetRequests.map(r => {
+        const proj = masterProjects.find(p => p.id === r.projectId);
+        const isGov = proj && (proj.budget_type || 'government') === 'government';
+        const typeBadge = isGov 
+          ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold text-[10px]">งบโครงการ</span>`
+          : `<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">งบเงินบำรุง</span>`;
+
+        return `
+          <tr class="hover:bg-slate-50 transition-all">
+            <td class="p-4 font-mono font-bold text-slate-800">${r.id} <div class="text-[10px] text-slate-400 font-normal">${r.createdAt}</div></td>
+            <td class="p-4"><div class="mb-1">${typeBadge}</div><div class="font-semibold text-slate-800">${r.title}</div><div class="text-[10px] text-emerald-600 font-medium">${proj ? proj.name : r.projectId}</div></td>
+            <td class="p-4 font-medium text-slate-700">${r.requester} <div class="text-[10px] text-slate-400">${r.dept}</div></td>
+            <td class="p-4 text-right font-extrabold text-slate-800">฿${Number(r.amount||0).toLocaleString()}</td>
+            <td class="p-4 text-center">${getStatusBadge(r.status)}</td>
+            <td class="p-4 text-center space-x-1">
+              ${getApprovalActions(r)}
+              <button onclick="openMemoModal('${r.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-bold">📄 บันทึกข้อความ</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function getStatusBadge(status) {
+      const badges = {
+        'pending_head': '<span class="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-bold text-[10px]">1. รอหัวหน้ากลุ่มงานอนุมัติ</span>',
+        'pending_finance': '<span class="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-bold text-[10px]">2. รองานคลัง/พัสดุ ตัดตั้งจอง</span>',
+        'pending_director': '<span class="bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full font-bold text-[10px]">3. รอ ผอ. อนุมัติเบิกจ่าย</span>',
+        'disbursed': '<span class="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[10px]">✓ อนุมัติเบิกจ่ายสำเร็จ</span>'
+      };
+      return badges[status] || status;
+    }
+
+    function getApprovalActions(req) {
+      // ตรวจสอบสิทธิ์ว่ามีสิทธิ์กดอนุมัติหรือไม่ (Approver หรือ Admin)
+      const isApprover = currentUser && (currentUser.role === 'approver' || currentUser.role === 'admin');
+      if (!isApprover) {
+        return '<span class="text-xs text-slate-400 font-medium">ไม่มีสิทธิ์อนุมัติ</span>';
+      }
+
+      if (req.status === 'pending_head') return `<button onclick="advanceStatus('${req.id}', 'pending_finance')" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold">1. อนุมัติ (หัวหน้า)</button>`;
+      if (req.status === 'pending_finance') return `<button onclick="advanceStatus('${req.id}', 'pending_director')" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold">2. ตัดตั้งจอง (คลัง)</button>`;
+      if (req.status === 'pending_director') return `<button onclick="advanceStatus('${req.id}', 'disbursed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold">3. อนุมัติจ่าย (ผอ.)</button>`;
+      return '<span class="text-xs text-slate-400 font-semibold">เสร็จสิ้น</span>';
+    }
+
+    async function advanceStatus(reqId, nextStatus) {
+      const req = budgetRequests.find(r => r.id === reqId);
+      const proj = masterProjects.find(p => p.id === req.projectId);
+      if (!req || !proj) return;
+
+      let updateProjData = {};
+      if (nextStatus === 'pending_director') {
+        updateProjData = { encumbered: Number(proj.encumbered || 0) + req.amount };
+      } else if (nextStatus === 'disbursed') {
+        updateProjData = { 
+          encumbered: Math.max(0, Number(proj.encumbered || 0) - req.amount),
+          disbursed: Number(proj.disbursed || 0) + req.amount 
+        };
+      }
+
+      if (Object.keys(updateProjData).length > 0) {
+        await supabaseClient.from('projects').update(updateProjData).eq('id', proj.id);
+      }
+      await supabaseClient.from('requests').update({ status: nextStatus }).eq('id', reqId);
+      alert(`ดำเนินการอนุมัติคำขอ ${reqId} เรียบร้อยแล้ว`);
+      loadProjectsFromSupabase();
+      loadRequestsFromSupabase();
+    }
+
+    function renderAuditLogs() {
+      const container = document.getElementById('audit-log-container');
+      if (!container) return;
+
+      container.innerHTML = budgetRequests.map(r => `
+        <div class="flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">LOG</div>
+          <div class="flex-1 text-xs space-y-1">
+            <div class="flex justify-between">
+              <span class="font-bold text-slate-800">คำขอ ${r.id} - ${r.title}</span>
+              <span class="text-slate-400 font-mono">${r.createdAt}</span>
+            </div>
+            <p class="text-slate-600">ผู้ขอเบิก: ${r.requester} (${r.dept}) | ยอดเงิน: ฿${Number(r.amount).toLocaleString()}</p>
+            <div class="pt-1">${getStatusBadge(r.status)}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ------------------------------------------
+    // 7. MEMO PRINT & ADMIN MASTER
+    // ------------------------------------------
+    function openMemoModal(reqId) {
+      const req = budgetRequests.find(r => r.id === reqId);
+      const proj = masterProjects.find(p => p.id === req.projectId);
+      if (!req) return;
+
+      const isGov = proj && (proj.budget_type || 'government') === 'government';
+      document.getElementById('memo-bg-type-label').innerText = isGov ? "งบประมาณโครงการ" : "งบเงินบำรุง";
+
+      document.getElementById('memo-dept').innerText = req.dept;
+      document.getElementById('memo-dept-body').innerText = req.dept;
+      document.getElementById('memo-ref').innerText = req.id;
+      document.getElementById('memo-date').innerText = req.createdAt;
+      document.getElementById('memo-title').innerText = req.title;
+      document.getElementById('memo-project').innerText = proj ? proj.name : req.projectId;
+      document.getElementById('memo-sign-req').innerText = req.requester;
+      document.getElementById('memo-stamp-id').innerText = `${req.id}-${proj ? proj.gfmis : 'GF-000'}`;
+
+      const tableBody = document.getElementById('memo-items-table');
+      tableBody.innerHTML = (req.items || []).map((item, idx) => `
+        <tr>
+          <td class="border border-slate-400 p-2 text-center">${idx + 1}</td>
+          <td class="border border-slate-400 p-2">${item.title}</td>
+          <td class="border border-slate-400 p-2 text-center">${item.qty}</td>
+          <td class="border border-slate-400 p-2 text-right">฿${Number(item.unitPrice).toLocaleString()}</td>
+          <td class="border border-slate-400 p-2 text-right">฿${Number(item.total).toLocaleString()}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('memo-total-amount').innerText = `฿${Number(req.amount||0).toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+      const qrContainer = document.getElementById('memo-qrcode');
+      qrContainer.innerHTML = '';
+      new QRCode(qrContainer, {
+        text: `VERIFIED-BUDGET-STAMP:${req.id}:${req.amount}`,
+        width: 50,
+        height: 50
+      });
+
+      document.getElementById('modal-memo').classList.remove('hidden');
+    }
+
+    function closeMemoModal() {
+      document.getElementById('modal-memo').classList.add('hidden');
+    }
+
+    async function handleAddProject(e) {
+      e.preventDefault();
+      const newProj = {
+        id: document.getElementById('admin-proj-id').value.trim(),
+        name: document.getElementById('admin-proj-name').value.trim(),
+        dept: document.getElementById('admin-proj-dept').value.trim(),
+        gfmis: document.getElementById('admin-proj-gfmis').value.trim(),
+        allocated: parseFloat(document.getElementById('admin-proj-allocated').value),
+        budget_type: document.getElementById('admin-proj-type').value,
+        disbursed: 0,
+        encumbered: 0
+      };
+
+      const { error } = await supabaseClient.from('projects').insert([newProj]);
+      if (error) alert("เกิดข้อผิดพลาดในการบันทึกโครงการ: " + error.message);
+      else { alert(`เพิ่มรายการ ${newProj.name} ลง Supabase สำเร็จ!`); switchTab('dashboard'); }
+    }
+  </script>
+</body>
+</html>
