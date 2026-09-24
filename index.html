@@ -468,30 +468,22 @@
     }
 
     // ------------------------------------------
-    // 3. AUTHENTICATION & ROLE-BASED ACCESS
+    // 3. AUTHENTICATION (HARDCODED FALLBACK OVERRIDE)
     // ------------------------------------------
-    async function handleLogin(e) {
+    function handleLogin(e) {
       e.preventDefault();
       const u = document.getElementById('login-username').value.trim();
       const p = document.getElementById('login-password').value.trim();
 
       let userData = null;
-      try {
-        const { data } = await supabaseClient.from('users').select('*').eq('username', u).eq('password', p).single();
-        userData = data;
-      } catch (err) {
-        console.log("Supabase Users query bypass active");
-      }
 
-      // Hardcoded Fallback ถ้าตาราง users ใน Supabase ยังไม่มีข้อมูล
-      if (!userData) {
-        if (u === 'admin' && p === 'Rmsc04_admin') {
-          userData = { username: 'admin', name: 'ผู้ดูแลระบบ (Master Admin)', role: 'admin', dept: 'ศูนย์วิทยาศาสตร์การแพทย์ที่ 4 สระบุรี' };
-        } else if (u === 'head1' && p === '1234') {
-          userData = { username: 'head1', name: 'หัวหน้ากลุ่มงาน / งานคลัง', role: 'approver', dept: 'ฝ่ายบริหารทั่วไป' };
-        } else if (u === 'user1' && p === '1234') {
-          userData = { username: 'user1', name: 'นักวิทยาศาสตร์การแพทย์ (ผู้ขอเบิก)', role: 'user', dept: 'กลุ่มงานชันสูตร' };
-        }
+      // ตรวจสอบบัญชีหลักแบบตรงไปตรงมา
+      if (u === 'admin' && p === 'Rmsc04_admin') {
+        userData = { username: 'admin', name: 'ผู้ดูแลระบบ (Master Admin)', role: 'admin', dept: 'ศูนย์วิทยาศาสตร์การแพทย์ที่ 4 สระบุรี' };
+      } else if (u === 'head1' && p === '1234') {
+        userData = { username: 'head1', name: 'หัวหน้ากลุ่มงาน / งานคลัง', role: 'approver', dept: 'ฝ่ายบริหารทั่วไป' };
+      } else if (u === 'user1' && p === '1234') {
+        userData = { username: 'user1', name: 'นักวิทยาศาสตร์การแพทย์ (ผู้ขอเบิก)', role: 'user', dept: 'กลุ่มงานชันสูตร' };
       }
 
       if (userData) {
